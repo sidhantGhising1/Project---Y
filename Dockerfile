@@ -9,10 +9,12 @@ RUN npm run build
 # Stage 2 - Backend (Laravel + PHP + Composer)
 FROM php:8.2.15-fpm-alpine
 
-# Install system dependencies with retry
+# Install system dependencies
 RUN apk add --no-cache \
-    git curl unzip libzip zip \
-    && docker-php-ext-install mbstring zip
+    git curl unzip \
+    libzip-dev \
+    && docker-php-ext-install mbstring zip \
+    && apk del libzip-dev
 
 # Install MongoDB extension using the helper script
 COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
