@@ -1,5 +1,5 @@
 # Stage 1 - Build Frontend (Vite)
-FROM node:18 AS frontend
+FROM node:18-alpine AS frontend
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
@@ -7,19 +7,16 @@ COPY . .
 RUN npm run build
 
 # Stage 2 - Backend (Laravel + PHP + Composer)
-FROM php:8.2-fpm AS backend
+FROM php:8.2.15-fpm-alpine
 
-# Install system dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    git curl unzip libzip-dev zip \
+# Install system dependencies with retry
+RUN apk add --no-cache \
+    git curl unzip libzip zip \
     && docker-php-ext-install mbstring zip
 
 # Install MongoDB extension using the helper script
 COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
 RUN install-php-extensions mongodb
-
-# Cleanup
-RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
