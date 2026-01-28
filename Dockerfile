@@ -9,22 +9,17 @@ RUN npm run build
 # Stage 2 - Backend (Laravel + PHP + Composer)
 FROM php:8.2-fpm AS backend
 
-# Install system dependencies and MongoDB extension
-RUN apt-get update && apt-get install -y \
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git curl unzip libzip-dev zip \
-    && docker-php-ext-install mbstring zip \
-    && curl -fsSL https://pecl.php.net/get/mongodb -o /tmp/mongodb.tgz \
-    && tar -xzf /tmp/mongodb.tgz -C /tmp \
-    && rm /tmp/mongodb.tgz \
-    && cd /tmp/mongodb-* \
-    && apt-get install -y build-essential autoconf pkg-config \
-    && phpize \
-    && ./configure \
-    && make \
-    && make install \
-    && docker-php-ext-enable mongodb \
-    && apt-get remove -y build-essential autoconf pkg-config \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/mongodb-*
+    && docker-php-ext-install mbstring zip
+
+# Install MongoDB extension using the helper script
+COPY --from=mlocati/php-extension-installer /usr/bin/install-php-extensions /usr/local/bin/
+RUN install-php-extensions mongodb
+
+# Cleanup
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
