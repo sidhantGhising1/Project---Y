@@ -1,131 +1,47 @@
-# ================================
-# Stage 0 – PHP extension installer
-# ================================
-FROM mlocati/php-extension-installer AS php-ext-installer
+FROM php:8.2-cli
 
-# ================================
-# Stage 1 – Build frontend (Vite)
-# ================================
-FROM node:18-alpine AS frontend
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install
-
-COPY . .
-RUN npm run build
-
-# ================================
-# Stage 2 – Backend (Laravel + PHP + Nginx)
-# ================================
-FROM php:8.2-fpm-alpine
-
-# ----------------
-# System & PHP deps
-# ----------------
-RUN apk add --no-cache \
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
     git \
     curl \
     unzip \
-    nginx \
-    supervisor \
-    libzip \
-    libzip-dev \
-    oniguruma-dev \
-    mariadb-dev \
-    $PHPIZE_DEPS
-
-# ----------------
-# PHP extensions
-# ----------------
-RUN docker-php-ext-install \
-    mbstring \
     zip \
-    pdo \
-    pdo_mysql
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
+    libzip-dev \
+    libssl-dev \
+    libsodium-dev \
+    libfreetype6-dev \
+    libjpeg62-turbo-dev \
+    default-mysql-client \
+    default-libmysqlclient-dev \
+    && docker-php-ext-configure gd --with-freetype --with-jpeg \
+    && docker-php-ext-install mbstring exif pcntl bcmath gd zip sodium
 
-COPY --from=php-ext-installer /usr/bin/install-php-extensions /usr/local/bin/
-RUN install-php-extensions mongodb
+# Install MongoDB PHP extension
+RUN pecl install mongodb \
+    && docker-php-ext-enable mongodb
 
-RUN apk del $PHPIZE_DEPS
+# Get Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
 
-# ----------------
-# Composer
-# ----------------
-COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
 
-WORKDIR /var/www
+# Set working directory
+WORKDIR /var/www/html
 
-# ----------------
-# Copy application
-# ----------------
+# Copy application files
 COPY . .
 
-# Copy built frontend assets
-COPY --from=frontend /app/public/build ./public/build
+# Install dependencies
+RUN composer install --no-dev --optimize-autoloader
+RUN npm install && npm run build
 
-# ----------------
-# Install PHP deps
-# ----------------
-RUN composer install \
-    --no-dev \
-    --optimize-autoloader \
-    --no-interaction
+# Expose port
+EXPOSE 8000
 
-# ----------------
-# Permissions
-# ----------------
-RUN chown -R nobody:nobody /var/www \
-    && chmod -R 755 /var/www/storage \
-    && chmod -R 755 /var/www/bootstrap/cache
-
-# ----------------
-# Nginx config
-# ----------------
-RUN mkdir -p /run/nginx && \
-    printf '%s\n' \
-    'server {' \
-    '    listen 8080;' \
-    '    server_name _;' \
-    '    root /var/www/public;' \
-    '    index index.php;' \
-    '' \
-    '    location / {' \
-    '        try_files $uri $uri/ /index.php?$query_string;' \
-    '    }' \
-    '' \
-    '    location ~ \.php$ {' \
-    '        fastcgi_pass 127.0.0.1:9000;' \
-    '        fastcgi_param SCRIPT_FILENAME $realpath_root$fastcgi_script_name;' \
-    '        include fastcgi_params;' \
-    '    }' \
-    '}' \
-    > /etc/nginx/http.d/default.conf
-
-# ----------------
-# Supervisor config
-# ----------------
-RUN mkdir -p /etc/supervisor.d && \
-    printf '%s\n' \
-    '[supervisord]' \
-    'nodaemon=true' \
-    '' \
-    '[program:php-fpm]' \
-    'command=/usr/local/sbin/php-fpm -F' \
-    'autostart=true' \
-    'autorestart=true' \
-    'stdout_logfile=/dev/stdout' \
-    'stderr_logfile=/dev/stderr' \
-    '' \
-    '[program:nginx]' \
-    'command=/usr/sbin/nginx -g "daemon off;"' \
-    'autostart=true' \
-    'autorestart=true' \
-    'stdout_logfile=/dev/stdout' \
-    'stderr_logfile=/dev/stderr' \
-    > /etc/supervisor.d/supervisord.ini
-
-EXPOSE 8080
-
-CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor.d/supervisord.ini"]
+# Run migrations & start app
+CMD php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000
